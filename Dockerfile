@@ -9,7 +9,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY --from=build /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels \
-    && useradd --create-home --uid 10001 sync
-USER sync
-WORKDIR /home/sync
+    && useradd --create-home --uid 10001 odatasync
+USER odatasync
+WORKDIR /home/odatasync
 ENTRYPOINT ["odata-sync-job"]
