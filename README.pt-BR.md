@@ -7,10 +7,10 @@
 
 [English](README.md) | Português
 
-Sincronização incremental e conciliação só por chaves para APIs OData (ERPs, plataformas
-fiscais, Dynamics, SAP Gateway): checkpoint que só avança depois que os dados foram gravados,
-paginação segura, retentativa com espera crescente e um jeito barato de achar e preencher as
-lacunas.
+Biblioteca Python para puxar dados de APIs OData (ERPs, plataformas fiscais, Dynamics, SAP
+Gateway) trazendo só o que mudou desde a última vez, e para descobrir o que ficou faltando sem
+baixar tudo de novo. Ela guarda o ponto onde parou (o *checkpoint*) só depois que os dados foram
+gravados, pagina com segurança e tenta de novo sozinha quando a API falha.
 
 ## O problema
 
@@ -57,7 +57,7 @@ result = sync_incremental(
     cursor_field="ModifiedAt",
     store=store,
     sink=sink,
-    lookback=timedelta(minutes=5),  # relê uma janela pequena; o upsert evita duplicar
+    lookback=timedelta(minutes=5),  # relê 5 minutos para trás; como grava por chave, não duplica
     server_tz=ZoneInfo("America/Sao_Paulo"),
 )
 print(result.records, result.checkpoint_after)
@@ -67,7 +67,7 @@ O que acontece:
 
 1. lê o checkpoint e pede `ModifiedAt ge (checkpoint - lookback)`, ordenado por
    `ModifiedAt, Key`;
-2. entrega cada página ao destino (qualquer função: banco, fila, arquivo);
+2. entrega cada página ao destino, que é qualquer função que grave os dados (banco, fila, arquivo);
 3. **só depois que o destino confirma** grava o último `ModifiedAt` daquela página como
    checkpoint. Se o destino der erro, o checkpoint fica onde estava e a próxima execução continua
    dali.
@@ -76,7 +76,7 @@ As páginas são percorridas **pela chave** (`ModifiedAt gt último or (Modified
 Key gt última_chave)`) e não por `$skip`. Assim, alterações feitas no servidor durante a execução
 não fazem pular registro. Há um teste exatamente para esse caso.
 
-### Conciliação só por chaves
+### Achar o que faltou (conferência só pelas chaves)
 
 ```python
 from datetime import date
@@ -128,7 +128,7 @@ for page in client.iter_pages("Customers", filter="Active eq true", orderby="Id"
   sem tentar de novo.
 - Os valores da URL usam `%20`, nunca `+`, e o `+` do fuso horário é escapado.
 
-### Checkpoints e destinos
+### Onde guardar o ponto de parada e onde gravar os dados
 
 | Checkpoint | Onde fica |
 | --- | --- |
@@ -137,7 +137,7 @@ for page in client.iter_pages("Customers", filter="Active eq true", orderby="Id"
 | `SqlCheckpoint(conn, "mysql" ou "postgres")` | Tabela no mesmo banco dos dados |
 | `MemoryCheckpoint()` | Testes e execuções avulsas |
 
-| Destino | Upsert |
+| Destino | Como grava sem duplicar (insere ou atualiza pela chave) |
 | --- | --- |
 | `SqliteSink(caminho ou conn, tabela, chave)` | `INSERT ... ON CONFLICT DO UPDATE` |
 | `MySQLSink(conn, ...)` / `MySQLSink.connect(...)` | `INSERT ... ON DUPLICATE KEY UPDATE` |
