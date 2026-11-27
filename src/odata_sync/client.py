@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 import requests
 
@@ -168,6 +168,21 @@ class ODataClient:
             raise ValueError("page_size must be at least 1")
         return min(page_size, self.max_top) if self.max_top else page_size
 
+    def _checked_next_link(self, link: str) -> str:
+        """Resolve a nextLink and refuse one that points to another host.
+
+        The session carries the credentials, so following a link to a different scheme or host
+        would send the token there.
+        """
+        url = urljoin(self.base_url, link)
+        base, target = urlsplit(self.base_url), urlsplit(url)
+        if (target.scheme.lower(), target.netloc.lower()) != (base.scheme.lower(), base.netloc.lower()):
+            raise ODataError(
+                f"nextLink points to {target.scheme}://{target.netloc}, outside {base.scheme}://{base.netloc}; "
+                "not following it so the credentials are not sent to another host"
+            )
+        return url
+
     # -- paging ----------------------------------------------------------------------------
 
     def fetch_page(
@@ -213,6 +228,7 @@ class ODataClient:
         skip = 0
         pages = 0
         server_paging = False
+        seen_links: set[str] = set()
         while True:
             if records:
                 pages += 1
@@ -221,7 +237,11 @@ class ODataClient:
                 return
             if next_link:
                 server_paging = True
-                payload = self.get_json(next_link)
+                next_url = self._checked_next_link(next_link)
+                if next_url in seen_links:
+                    raise ODataError(f"server repeated the same nextLink, stopping to avoid a loop: {next_url}")
+                seen_links.add(next_url)
+                payload = self.get_json(next_url)
                 records, next_link = extract_records(payload), extract_next_link(payload)
                 continue
             # Once the server drives paging, a page without nextLink is the last one.

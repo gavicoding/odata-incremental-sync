@@ -73,6 +73,39 @@ def test_follows_next_link_absolute_and_relative():
 
 
 @responses.activate
+def test_next_link_to_another_host_is_refused_and_token_not_sent():
+    responses.get(
+        f"{BASE}Items", json={"value": [{"Id": 1}], "@odata.nextLink": "https://outro.exemplo.test/Items?p=2"}
+    )
+    other = responses.get("https://outro.exemplo.test/Items", json={"value": [{"Id": 2}]})
+    c = ODataClient(BASE, token="segredo-ficticio", sleep=lambda _s: None)
+    pages = c.iter_pages("Items", page_size=100)
+    assert next(pages) == [{"Id": 1}]
+    with pytest.raises(ODataError, match="outside"):
+        next(pages)
+    assert other.call_count == 0
+
+
+@responses.activate
+def test_next_link_with_other_scheme_is_refused():
+    responses.get(
+        f"{BASE}Items", json={"value": [{"Id": 1}], "@odata.nextLink": "http://erp.exemplo.test/odata/Items?p=2"}
+    )
+    c, _ = client()
+    with pytest.raises(ODataError, match="outside"):
+        list(c.iter_pages("Items", page_size=100))
+
+
+@responses.activate
+def test_repeated_next_link_stops_instead_of_looping():
+    responses.get(f"{BASE}Items", json={"value": [{"Id": 1}], "@odata.nextLink": "Items?$skiptoken=1"})
+    c, _ = client()
+    with pytest.raises(ODataError, match="repeated"):
+        list(c.iter_pages("Items", page_size=100))
+    assert len(responses.calls) == 2
+
+
+@responses.activate
 def test_server_paging_page_without_next_link_is_the_last():
     responses.get(f"{BASE}Items", json={"value": [{"Id": 1}, {"Id": 2}], "@odata.nextLink": "Items?$skiptoken=2"})
     responses.get(f"{BASE}Items", json={"value": [{"Id": 3}, {"Id": 4}]})
