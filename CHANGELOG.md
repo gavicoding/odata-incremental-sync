@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `iter_pages` no longer follows a `nextLink` that points to another scheme or host, so the
+  bearer token is never sent outside the service root. It raises `ODataError` instead.
+- A server that keeps returning the same `nextLink` now raises `ODataError` instead of looping.
+
 ## 1.0.0 (2026-11-26)
 
 First release.
